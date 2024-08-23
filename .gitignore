@@ -1,0 +1,10 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+
+# Ignore benchmark/output with exceptions (as some files are big)
+benchmark/output/*
+
+# Ignore tikzDictionary
+*tikzDictionary
