@@ -25,7 +25,9 @@ options(tikzDocumentDeclaration = union(
     r"(\newcommand{\matr}[1]{\mathbf{#1}})",
     r"(\usepackage{xcolor})",
     r"(\definecolor{ggplotRed}{rgb}{0.97255,0.46275,0.42745})",
-    r"(\definecolor{ggplotBlue}{rgb}{0,0.74902,0.76863})"
+    r"(\definecolor{ggplotBlue}{rgb}{0,0.74902,0.76863})",
+    r"(\definecolor{colorbrewerDarkOrange}{HTML}{d95f02})",
+    r"(\definecolor{colorbrewerDarkPurple}{HTML}{7570b3})"
   ))
 )
 options(tikzLatexPackages = union(
@@ -289,3 +291,22 @@ add_graphic <- function(filename, x = 0, y = 0, width = NULL, height = NULL,
   res
 }
 
+
+unnest_named_lists <- function(data, cols, names_to = "name"){
+  cols <- tidyselect::eval_select(expr = enquo(cols), data = data,  allow_rename = FALSE)
+  map2(cols, names(cols), \(co, na){ 
+    val <- data[[co]]
+    if(! is.list(val) || is.null(names(val))){
+      stop("All columns must be named list columns. Column: ", na , " is not.")
+    }
+    tibble(..id.. = rep(seq_len(nrow(data)), lengths(val)), ..names.. = unlist(map(val, names)), {{na}} := unlist(val))
+  }) |>
+    purrr::reduce(dplyr::full_join, by = c("..id..", "..names..")) |>
+    (\(x)
+     left_join({
+       data |>
+         dplyr::select(-all_of(cols)) |>
+         mutate( ..id.. = row_number())
+     }, x, by = "..id.."))() |>
+    dplyr::select(-..id.., {{names_to}} := ..names..)
+}

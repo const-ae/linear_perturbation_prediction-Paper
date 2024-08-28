@@ -210,6 +210,271 @@ obs_pred_corr_pl <- contr_res %>%
 obs_pred_corr_pl
 ```
 
+```{r, paged.print=FALSE}
+all_combs <- tibble(perturbation = res$perturbation |> discard(\(x) str_detect(x, "ctrl")) |> unique()) %>%
+  mutate(split = str_split(perturbation, "\\+")) %>%
+  mutate(combs = map(split, \(x) list(x, c(x[1], "ctrl"), c(x[2], "ctrl"), "ctrl")),
+         labels = map(split, \(x) c("AB", "A", "B", "ctrl"))) %>%
+  transmute(pert_group = perturbation, 
+            combs = map(combs, \(x) map(x, sort, method = "radix")),
+            labels) %>%
+  unnest(c(combs, labels))
+
+ground_truth_df <- res %>%
+  filter(method == "ground_truth") %>%
+  mutate(perturbation_split = map(perturbation_split, sort, method = "radix")) %>%
+  dplyr::select(perturbation, perturbation_split, seed, train, ground_truth = prediction) %>%
+  inner_join(all_combs, by = c("perturbation_split" = "combs")) %>%
+  unnest_named_lists(ground_truth, names_to = "gene_name") %>%
+  pivot_wider(id_cols = c(gene_name, pert_group), names_from = labels, values_from = ground_truth) %>%
+  mutate(error = `AB` - (A + B - ctrl)) %>%
+  # mutate(error_clever = broom::augment(lm(`AB` - ctrl ~ I(A - ctrl) + I(B - ctrl) - 1))$.resid, .by = pert_group)
+  mutate(error_clever = broom::augment(lm(`AB` - ctrl ~ I(A - ctrl + B - ctrl) - 1))$.resid, .by = pert_group)
+```
+
+
+```{r, paged.print=FALSE}
+pl_data <- ground_truth_df %>%
+  left_join(expr_rank_df %>% dplyr::select(gene_name, rank = expr_rank), by = c("gene_name")) %>% 
+  mutate(sum_abs_changes = abs(A - ctrl) + abs(B - ctrl)) %>%
+  mutate(abs_error = abs(error)) %>%
+  mutate(abs_error = if_else(abs_error > 1, Inf, abs_error)) 
+
+
+frac_nonlin_pl1 <- pl_data %>%
+  summarize(frac_nonlinear = mean(abs(error) > 0.15), .by = pert_group) %>%
+  ggplot(aes(x = frac_nonlinear)) +
+    geom_histogram(bins = 20) +
+    scale_x_continuous(labels = scales::label_percent(suffix = "\\%")) +
+    scale_y_continuous(limits = c(-1e-3, NA), expand = expansion(mult = c(0, 0.1))) +
+    labs(title = "(B) Fraction of genes with non-linear interaction effect per double perturbation",
+         subtitle = "All genes ($19\\,264$)",
+         x = "Percent of genes with $|\\textrm{true interaction}| > 0.15$",
+         y = "Number of double perturbations") +
+    theme(plot.title.position = "plot")
+
+frac_nonlin_pl2 <- pl_data %>%
+  filter(rank <= 1000) %>%
+  summarize(frac_nonlinear = mean(abs(error) > 0.15), .by = pert_group) %>%
+  ggplot(aes(x = frac_nonlinear)) +
+    geom_histogram(bins = 20) +
+    scale_x_continuous(labels = scales::label_percent(suffix = "\\%")) +
+    scale_y_continuous(limits = c(-1e-3, NA), expand = expansion(mult = c(0, 0.1))) +
+    labs(title = "",
+         subtitle = "$1\\,000$ most highly expressed genes",
+         x = "Percent of genes with $|\\textrm{true interaction}| > 0.15$",
+         y = "Number of double perturbations")  +
+    theme(plot.title.position = "plot")
+
+nonlin_magnitude_comp_pl1 <- pl_data %>%
+  ggplot(aes(x = sum_abs_changes, y = abs_error)) +
+    ggrastr::rasterize(geom_point(aes(color = abs_error < 0.15), size = 0.1, stroke = 0), dpi = 600) +
+    scale_x_log10(labels = scales::label_log(), limits = c(5e-5, NA))  +
+    scale_y_continuous(limits = c(0, 1), expand = expansion(0)) +
+    scale_color_manual(values = c("TRUE" = "black", "FALSE" = "red"), 
+                                  labels = c("TRUE" = "$|\\textrm{true interaction}| \\le 0.15$",
+                                             "FALSE" = "$|\\textrm{true interaction}| > 0.15$")) +
+    coord_cartesian(clip = "off") +
+    guides(color = guide_legend(override.aes = list(size = 2))) +
+    labs(title = "(A) Size of true interaction effects vs.\ size of single effects",
+          subtitle = "All genes ($19\\,264$)",
+         x = "Sum of absolute expression changes in single perturbations", 
+         y = "Absolute true interaction", color= "") +
+    theme(legend.position = "inside", legend.position.inside = c(0.1, 0.8),
+          plot.title.position = "plot") 
+
+nonlin_magnitude_comp_pl2 <- pl_data %>%
+  filter(rank <= 1000) %>%
+  ggplot(aes(x = sum_abs_changes, y = abs_error)) +
+    ggrastr::rasterize(geom_point(aes(color = abs_error < 0.15), size = 0.1, stroke = 0), dpi = 600) +
+    scale_x_log10(labels = scales::label_log(), limits = c(5e-5, NA))  +
+    scale_y_continuous(limits = c(0, 1), expand = expansion(0)) +
+    scale_color_manual(values = c("TRUE" = "black", "FALSE" = "red"), 
+                                  labels = c("TRUE" = "$|\\textrm{true interaction}| \\le 0.15$",
+                                             "FALSE" = "$|\\textrm{true interaction}| > 0.15$")) +
+    coord_cartesian(clip = "off") +
+    guides(color = guide_legend(override.aes = list(size = 2))) +
+    labs(title = "",
+         subtitle = "$1\\,000$ most highly expressed genes",
+         x = "Sum of absolute expression changes in single perturbations", 
+         y = "Absolute true interaction", color= "") +
+    theme(legend.position = "inside", legend.position.inside = c(0.1, 0.8),
+          plot.title.position = "plot") 
+
+
+scaled_add_model_pl1 <- pl_data %>%
+  summarize(frac_nonlinear_clever = mean(abs(error_clever) > 0.15), 
+            frac_nonlinear_orig = mean(abs(error) > 0.15), 
+            .by = pert_group) %>%
+  ggplot(aes(x = frac_nonlinear_orig, y = frac_nonlinear_clever)) +
+    geom_point(size = 0.6) +
+    geom_abline(color = "grey", linetype = "dashed") +
+    scale_x_continuous(limits = c(0, NA), expand = expansion(mult = c(0, 0.1)), labels = scales::label_percent(suffix = "\\%")) +
+    scale_y_continuous(limits = c(0, NA), expand = expansion(mult = c(0, 0.1)), labels = scales::label_percent(suffix = "\\%")) +
+    labs(title = "(C) Additive model ($\\delta AB = \\delta A + \\delta B$) vs.\\ scaled additive model ($\\delta AB = \\alpha (\\delta A + \\delta B)$)",
+         subtitle = "All genes ($19\\,264$)",
+         x = "Percent of genes with $|\\textrm{true interaction}| > 0.15$\nwith additive model",
+         y = "Percent of genes with\n$|\\textrm{true interaction}| > 0.15$\nwith scaled additive model") +
+    coord_fixed() +
+    theme(plot.title.position = "plot")
+
+scaled_add_model_pl2 <- pl_data %>%
+  filter(rank <= 1000) %>%
+  summarize(frac_nonlinear_clever = mean(abs(error_clever) > 0.15), 
+            frac_nonlinear_orig = mean(abs(error) > 0.15), 
+            .by = pert_group) %>%
+  ggplot(aes(x = frac_nonlinear_orig, y = frac_nonlinear_clever)) +
+    geom_point(size = 0.6) +
+    geom_abline(color = "grey", linetype = "dashed") +
+    scale_x_continuous(limits = c(0, NA), expand = expansion(mult = c(0, 0.1)), labels = scales::label_percent(suffix = "\\%")) +
+    scale_y_continuous(limits = c(0, NA), expand = expansion(mult = c(0, 0.1)), labels = scales::label_percent(suffix = "\\%")) +
+    labs(title = "",
+         subtitle = "$1\\,000$ most highly expressed genes",
+         x = "Percent of genes with $|\\textrm{true interaction}| > 0.15$\nwith additive model",
+         y = "Percent of genes with\n$|\\textrm{true interaction}| > 0.15$\nwith scaled additive model") +
+    coord_fixed() +
+    theme(plot.title.position = "plot")
+      
+frac_nonlin_pl1
+frac_nonlin_pl2
+nonlin_magnitude_comp_pl1 
+nonlin_magnitude_comp_pl2
+scaled_add_model_pl1
+scaled_add_model_pl2
+```
+
+
+```{r}
+plot_assemble(
+  add_plot(nonlin_magnitude_comp_pl1, x = 0, y = 1, width = 70, height = 45),
+  add_plot(nonlin_magnitude_comp_pl2, x = 75, y = 1, width = 70, height = 45),
+  
+  add_plot(frac_nonlin_pl1, x = 0, y = 49, width = 70, height = 47.5),
+  add_plot(frac_nonlin_pl2, x = 75, y = 49, width = 70, height = 47.5),
+
+  add_plot(scaled_add_model_pl1, x = 0, y = 100, width = 80, height = 45),
+  add_plot(scaled_add_model_pl2, x = 75, y = 100, width = 80, height = 45),
+
+  width = 170, height = 145, units = "mm", show_grid_lines = FALSE,
+  latex_support = TRUE, filename = "../plots/suppl-double_perturbation_effect_size.pdf"
+)
+```
+
+
+
+```{r, paged.print=FALSE}
+filter_gt_df <- ground_truth_df %>%
+  left_join(expr_rank_df %>% dplyr::select(gene_name, rank = expr_rank), by = c("gene_name")) %>%
+  filter(rank <= 1000) 
+
+probs <- c(0.3, 0.7)
+xcoords <- qnorm(p = probs)
+ycoords <- quantile(filter_gt_df$error, prob = probs)
+sd_est <- unname(diff(ycoords) / diff(xcoords))
+mean_est <- mean(ycoords)
+
+annotate_ticks <- function(origin = c(0,0), dir = c(1,0), at = seq(-10, 10), length = 0.1, ...){
+  orth_dir <- c(dir[2], -dir[1])
+  pos <- t(lemur:::mply_dbl(at, \(t) origin + t * dir, ncol=2))
+  start <- pos + length/2 * orth_dir
+  end <- pos - length/2 * orth_dir
+  dat <- tibble(pos = t(pos), start = t(start), end = t(end))
+  geom_segment(data = dat, aes(x = start[,1], xend = end[,1], y = start[,2], yend = end[,2]), ...)
+}
+
+annotate_labels_along <- function(origin = c(0,0), dir = c(1,0), labels = at, at = 0, offset = 0, extra_df = NULL, ...){
+  orth_dir <- c(dir[2], -dir[1])
+  pos <- t(lemur:::mply_dbl(at, \(t) origin + t * dir, ncol=2))
+  dat <- bind_cols(tibble(pos = t(pos), labels), extra_df)
+  angle <- atan2(dir[2], dir[1]) / pi * 180
+  geom_text(data=dat, aes(label = labels, x = pos[,1] + offset * orth_dir[1], y = pos[,2] + offset * orth_dir[2]), angle = angle, ...)
+}
+
+label_pos <- c(0.001, 0.01, 0.1, 0.2, 0.5, 0.8, 0.9, 0.99, 0.999)
+
+qq_pl <- filter_gt_df %>%
+  mutate(percent_rank = percent_rank(error)) %>%
+  arrange(error) %>%
+  mutate(expect_quantile = qnorm(ppoints(n()))) %>%
+  ggplot(aes(x = expect_quantile, y = error)) +
+    geom_abline(slope = sd_est) +
+    annotate_ticks(dir = c(1, sd_est), at  = qnorm(label_pos), length = 0.17) +
+    annotate_labels_along(dir = c(1, sd_est), at = qnorm(label_pos[1:4]), labels = label_pos[1:4], offset = -0.25, size = font_size_small / .pt) +
+    annotate_labels_along(dir = c(1, sd_est), at = qnorm(label_pos[5:9]), labels = label_pos[5:9], offset = 0.25, size = font_size_small / .pt) +
+    annotate_labels_along(dir = c(1, sd_est), at = 4.5, labels = "Percentile", offset = 0.15, size = font_size_small / .pt) +
+    ggrastr::rasterize(geom_point(size = 0.3, stroke = 0), dpi = 300) +
+    coord_fixed() +
+    labs(title = "Quantile-Quantile plot of the deviation from the additive model",
+         x = "Quantiles of a standard normal distribution", y = "Quantiles of the\ntrue deviation from additive model")
+
+```
+
+
+
+```{r}
+plot_assemble(
+  add_text("(A)", x = 2.7, y = 1, fontsize = font_size, vjust = 1, fontface = "bold"),
+  add_plot(qq_pl, x = 3, y = 2, width = 120, height = 47.5),
+  
+  width = 170, height = 50, units = "mm", show_grid_lines = FALSE,
+  latex_support = TRUE, filename = "../plots/suppl-qqplot.pdf"
+)
+```
+
+
+```{r, paged.print=FALSE}
+bin_numeric <- function(label){
+  mat <- str_match(label, "^[\\(\\[]([+-]?\\d+\\.?\\d*),\\s*([+-]?\\d+\\.?\\d*)[\\]\\)]$")[,2:3,drop=FALSE]
+  array(as.numeric(mat), dim(mat))
+}
+
+slice_first <- function(data, condition, order_by = row_number(), ...){
+  filtered_data <- filter(data, {{condition}})
+  filtered_data <- arrange(filtered_data, {{order_by}})
+  slice_head(filtered_data, ...)
+}
+
+dens_ratio_df <- filter_gt_df %>%
+  mutate(obs_dens = error |> (\(err){
+    dens <- density(err, bw = "nrd0")
+    approx(dens$x, dens$y, err)$y
+  })(),
+  expected_dens = dnorm(error, mean = mean_est, sd = sd_est)) %>%
+  mutate(ratio =  pmin(1, expected_dens / obs_dens)) 
+
+upper_thres <- dens_ratio_df %>% slice_first(ratio < 0.1 & error > 0, order_by = error) %>% pull(error)
+lower_thres <- dens_ratio_df %>% slice_first(ratio < 0.1 & error < 0, order_by = desc(error)) %>% pull(error)
+
+error_histogram <- dens_ratio_df %>%
+  mutate(error_bin = santoku::chop_width(error, width = 0.01)) %>%
+  mutate(bin_num = bin_numeric(as.character(error_bin))) %>%
+  summarize(count_h0 = n() * mean(ratio),
+            count_h1 = n() * (1-mean(ratio)),
+            .by = c(error_bin, bin_num)) %>%
+  pivot_longer(starts_with("count_"), names_sep = "_", names_to = c(".value", "origin"))  %>%
+  mutate(origin = factor(origin, levels = c("h1", "h0"))) %>%
+  mutate(bin_width = matrixStats::rowDiffs(bin_num)) %>%
+  ggplot(aes(x = rowMeans(bin_num), y = count / sum(count) / bin_width)) +
+    geom_col(aes(fill = origin), width = 0.01, position = "stack", show.legend = FALSE) +
+    geom_function(fun = \(x) dnorm(x, mean = mean_est, sd = sd_est), n = 1e4, color = "red") +
+    geom_vline(xintercept = c(lower_thres, upper_thres), color = "#040404", linewidth = 0.2) +
+    scale_fill_manual(values = c("h0" = "lightgrey", "h1" = "black")) +
+    scale_x_continuous(limits = c(-0.45, 0.45)) +
+    scale_y_continuous(expand = expansion(mult = c(0, 0.1))) +
+    labs(y = "density", x = "Deviation from additive model")
+
+error_histogram
+```
+
+
+
+
+```{r}
+pl_data %>%
+  filter(rank <= 1000) %>%
+  summarize(frac_nonlinear = mean(abs(error) > 0.15), .by = pert_group) %>%
+  pull(frac_nonlinear) %>% summary()
+```
 
 
 
@@ -282,7 +547,7 @@ strat_pl <- strat_merged %>%
     scale_y_continuous(expand = expansion(mult = c(0, 0.2))) +
     facet_wrap(vars(sorted_by), labeller = as_labeller(c("expr" = "genes sorted by expression",
                                                           "de" = "genes sorted by differential expression"))) +
-    labs(x = "Number of genes (log-scale)", y = "Mean prediction error") +
+    labs(x = "top $n$ genes (log-scale)", y = "Prediction error ($L_2$)") +
     coord_cartesian(clip = "off") +
     theme(panel.spacing.x = unit(4, "mm"))
 
@@ -291,7 +556,7 @@ strat_pl
 
 
 ```{r, paged.print=FALSE}
-threshold <- 0.15
+threshold <- 0.25
 
 inter_pred_dat <- res %>%
   filter(seed == 1) %>%
@@ -367,10 +632,10 @@ tibble(x = points[1,], y = points[2,]) %>%
 ```
 
 ```{r, paged.print=FALSE}
-lower_thres_fun1 <- nonlin_fun(p1 = c(-threshold*1.6, -0.6), p2 = c(0, -threshold), vec1 = c(0.01, 0.1), vec2 = 0.2 * c(1,1), extrapolate_factor = c(2, 0))
-lower_thres_fun2 <- nonlin_fun(p1 = c(0.6, threshold*1.6), p2 = c(0, -threshold), vec1 = -c(0.1, 0.01), vec2 = -0.2 * c(1,1), extrapolate_factor = c(2, 0))
-upper_thres_fun1 <- nonlin_fun(p1 = c(threshold*1.6, 0.6), p2 = c(0, threshold), vec1 = -c(0.01, 0.1), vec2 = -0.2 * c(1,1), extrapolate_factor = c(2, 0))
-upper_thres_fun2 <- nonlin_fun(p1 = c(-0.6,-threshold*1.6), p2 = c(0, threshold), vec1 =  c(0.1, 0.01), vec2 = 0.2 * c(1,1), extrapolate_factor = c(2, 0))
+lower_thres_fun1 <- nonlin_fun(p1 = c(lower_thres, -0.6), p2 = c(0, lower_thres), vec1 = c(0.01, 0.1), vec2 = 0.2 * c(1,1), extrapolate_factor = c(2, 0))
+lower_thres_fun2 <- nonlin_fun(p1 = c(0.6, upper_thres), p2 = c(upper_thres, 0), vec1 = -c(0.1, 0.01), vec2 = -0.2 * c(1,1), extrapolate_factor = c(2, 0))
+upper_thres_fun1 <- nonlin_fun(p1 = c(threshold, 0.6), p2 = c(0, threshold), vec1 = -c(0.01, 0.1), vec2 = -0.2 * c(1,1), extrapolate_factor = c(2, 0))
+upper_thres_fun2 <- nonlin_fun(p1 = c(-0.6,-threshold), p2 = c(0, threshold), vec1 =  c(0.1, 0.01), vec2 = 0.2 * c(1,1), extrapolate_factor = c(2, 0))
 `%|%` <- rlang::`%|%`
 
 
@@ -395,10 +660,10 @@ pos_counts <- label_interaction_pred %>%
   mutate(n_label = scales::label_comma()(n)) %>%
   rowwise() %>%
   mutate(pos = matrix(case_when(
-    prediction_label == "Prediction too high" ~ threshold * c(-2,2),
-    prediction_label == "Prediction too low" ~ threshold * c(2,-2),
-    prediction_label == "Good suppression prediction" ~ threshold * c(-2,-2),
-    prediction_label == "Good synergy prediction" ~ threshold * c(2,2),
+    prediction_label == "Prediction too high" ~ threshold * c(-1.5,1.5),
+    prediction_label == "Prediction too low" ~ threshold * c(1.5,-1.5),
+    prediction_label == "Good suppression prediction" ~ threshold * c(-1.5,-1.5),
+    prediction_label == "Good synergy prediction" ~ threshold * c(1.5,1.5),
     prediction_label == "Good additive prediction" ~ c(0,0)
   ), nrow = 1))
 
@@ -416,22 +681,29 @@ pert_pred_comparison <- label_interaction_pred %>%
     geom_abline(slope = 1, intercept = 0, linetype = "dashed", alpha = 0.3) +
     shadowtext::geom_shadowtext(data = pos_counts, aes(x = pos[,1], y = pos[,2], label = n_label),
                                 hjust = 0.5, vjust = 0.5, size = font_size_tiny / .pt, color = "black", bg.color = "white") +
+    geom_hline(yintercept = c(lower_thres, upper_thres), linewidth = 0.2) +
+    geom_vline(xintercept = c(lower_thres, upper_thres), linewidth = 0.2) +
     annotate("path", x = lower_thres_fun1(return="mapping")[1,], y = lower_thres_fun1(return="mapping")[2,], linewidth = 0.2) +
     annotate("path", x = lower_thres_fun2(return="mapping")[1,], y = lower_thres_fun2(return="mapping")[2,], linewidth = 0.2) +
     annotate("path", x = upper_thres_fun1(return="mapping")[1,], y = upper_thres_fun1(return="mapping")[2,], linewidth = 0.2) +
     annotate("path", x = upper_thres_fun2(return="mapping")[1,], y = upper_thres_fun2(return="mapping")[2,], linewidth = 0.2) +
     facet_wrap(vars(method), labeller = as_labeller(method_labels)) +
     scale_x_continuous(expand = expansion(add = 0)) +
+    scale_y_continuous(expand = expansion(add = 0)) +
     scale_color_manual(values = color_scale) +
     coord_fixed(xlim = c(-0.6, 0.6), ylim = c(-0.6, 0.6)) +
     guides(color = guide_legend(override.aes = list(size = 2), ncol = 1)) +
-    labs(x = "True interaction ($\\textrm{observed value} - \\textrm{sum of single effects}$)", 
-         y = "Predicted interaction\n$\\textrm{predicted value} - \\textrm{sum of single effects}$", 
+    labs(x = "True deviation from additive model ($\\textrm{observed value} - \\textrm{sum of single effects}$)", 
+         y = "Predicted deviation from additive model\n$\\textrm{predicted value} - \\textrm{sum of single effects}$", 
          color = "") +
     theme(panel.spacing.x = unit(4, "mm"))
 
 pert_pred_comparison
 ```
+
+
+
+
 
 
 
@@ -442,12 +714,14 @@ plot_assemble(
   add_plot(obs_pred_corr_pl, x = 40, y = 4, width = 30, height = 47.5),
   add_graphic("../illustrations/two_arrows.pdf", x = -1, y = -1.5, units = "mm"),
 
-  add_text("(B) Prediction error stratified by gene set size", x = 75, y = 1, fontsize = font_size, vjust = 1, fontface = "bold"),
+  add_text("(B) Prediction error depending on number of considered genes", x = 75, y = 1, fontsize = font_size, vjust = 1, fontface = "bold"),
   add_plot(strat_pl, x = 75, y = 4, width = 90, height = 47.5),
   
+  add_plot(error_histogram, x = 0, y = 60, width = 35, height = 40),
+  
   add_text("(C) Prediction of non-additive perturbation effects", x = 2.7, y = 54, fontsize = font_size, vjust = 1, fontface = "bold"),
-  add_plot(pert_pred_comparison + guides(color = "none"), x = 0, y = 54, width = 135, height = 60),
-  add_plot(my_get_legend(pert_pred_comparison), x = 135, y = 60, width = 40, height = 40),
+  add_plot(pert_pred_comparison + guides(color = "none"), x = 35, y = 54, width = 135, height = 60),
+  # add_plot(my_get_legend(pert_pred_comparison), x = 135, y = 60, width = 40, height = 40),
 
 
   width = 170, height = 112, units = "mm", show_grid_lines = FALSE,
@@ -457,6 +731,53 @@ plot_assemble(
 
 
 
+
+# Resource usage
+
+```{r, paged.print=FALSE}
+resource_df <- read_tsv("../benchmark/output/single_perturbation_jobs_stats.tsv")
+
+norman_df <- resource_df %>%
+  separate(name, into = c("dataset", "seed", "method"), sep = "-") %>%
+  filter(dataset == "norman_from_scfoundation")
+
+mem_pl <- norman_df %>%
+  filter(metric == "max_mem_kbytes") %>%
+  filter(method != "ground_truth") %>%
+  mutate(method = factor(method, levels = names(method_labels))) %>%
+  ggplot(aes(x = method, y = value * 1000)) +
+    geom_point() +
+    scale_y_continuous(labels = scales::label_bytes()) +
+    scale_x_discrete(labels = method_labels) +
+    labs(y = "Peak memory usage", x = "") +
+    theme(panel.grid.major.y = element_line(color = "lightgrey", linewidth = 0.2))
+
+dur_pl <- norman_df %>%
+  filter(metric == "elapsed") %>%
+  filter(method != "ground_truth") %>%
+  mutate(method = factor(method, levels = names(method_labels))) %>%
+  ggplot(aes(x = method, y = value)) +
+    geom_point() +
+    scale_y_log10(limits = c(60, NA), breaks = c(60, 10 * 60, 60 * 60, 6 * 60 * 60, 60 * 60 * 24, 3 * 60 * 60 * 24), 
+                  labels = c("1 min", "10 min", "1 hour", "6 hours", "1 day", "3 days")) +
+    scale_x_discrete(labels = method_labels) +
+    labs(y = "Duration", x = "") +
+    theme(panel.grid.major.y = element_line(color = "lightgrey", linewidth = 0.2))
+```
+
+
+
+```{r}
+plot_assemble(
+  add_text("(A)", x = 2.7, y = 1, fontsize = font_size, vjust = 1, fontface = "bold"),
+  add_plot(dur_pl, x = 3, y = 2, width = 60, height = 47.5),
+  add_text("(B)", x = 70, y = 1, fontsize = font_size, vjust = 1, fontface = "bold"),
+  add_plot(mem_pl, x = 68, y = 2, width = 60, height = 47.5),
+  
+  width = 170, height = 50, units = "mm", show_grid_lines = FALSE,
+  latex_support = TRUE, filename = "../plots/suppl-resource_usage.pdf"
+)
+```
 
 
 
