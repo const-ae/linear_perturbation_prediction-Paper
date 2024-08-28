@@ -6,7 +6,7 @@ init("/scratch/ahlmanne/perturbation_prediction_benchmark")
 
 
 make_single_perturbation_jobs <- function(datasets = c('adamson', 'replogle_k562_essential', 'replogle_rpe1_essential'),
-                                   seeds = 1:5){
+                                   seeds = 1L){
   jobs <- lapply(datasets, \(dataset){
     scgpt_emb <- scgpt_extract_embedding()
     scfoundation_emb <- scfoundation_extract_embedding()
@@ -23,7 +23,6 @@ make_single_perturbation_jobs <- function(datasets = c('adamson', 'replogle_k562
         scgpt = scgpt_combinatorial_prediction(default_params, dep_jobs = list(config_job)),
         gears = gears_combinatorial_prediction(default_params, dep_jobs = list(config_job)),
         ground_truth = ground_truth_combinatorial_prediction(default_params, dep_jobs = list(config_job)),
-        # linear = linear_perturbation_prediction(c(default_params, list(ridge_penalty = 0.1, pca_dim = 5)), dep_jobs = list(config_job)),
         lpm_selftrained = linear_pretrained_model_prediction(c(list(gene_embedding = "training_data", pert_embedding = "training_data"), default_params), dep_jobs = list(config_job)),
         lpm_randomPertEmb = linear_pretrained_model_prediction(c(list(gene_embedding = "training_data", pert_embedding = "random"), default_params), dep_jobs = list(config_job)),
         lpm_randomGeneEmb = linear_pretrained_model_prediction(c(list(gene_embedding = "random", pert_embedding = "training_data"), default_params), dep_jobs = list(config_job)),
@@ -49,7 +48,7 @@ make_single_perturbation_jobs <- function(datasets = c('adamson', 'replogle_k562
 }
 
 make_double_perturbation_jobs <- function(datasets = c('norman_from_scfoundation'),
-                                   seeds = 1:5){
+                                   seeds = 1L){
   jobs <- lapply(datasets, \(dataset){
     inner_jobs <- lapply(seeds, \(se){
       config_job <- prepare_perturbation_data(list(dataset = dataset,  seed = se))
@@ -79,7 +78,7 @@ make_double_perturbation_jobs <- function(datasets = c('norman_from_scfoundation
 }
 
 # Launch double perturbation jobs
-double_pert_jobs <- make_double_perturbation_jobs(datasets = c("norman_from_scfoundation"), seeds = 1:1)
+double_pert_jobs <- make_double_perturbation_jobs(datasets = c("norman_from_scfoundation"), seeds = 1:5)
 write_rds(double_pert_jobs, "tmp/double_perturbation_jobs.RDS")
 stat <- map_chr(double_pert_jobs$dependencies, job_status); table(stat)
 run_job(double_pert_jobs, priority = "normal")
@@ -87,7 +86,7 @@ file.copy(file.path(result_file_path(double_pert_jobs), "predictions.RDS"), to =
 file.copy(file.path(result_file_path(double_pert_jobs), "parameters.RDS"), to = "output/double_perturbation_results_parameters.RDS", overwrite = TRUE)
 
 # Launch single perturbation jobs
-single_pert_jobs <- make_single_perturbation_jobs(datasets = c("adamson", 'replogle_k562_essential', 'replogle_rpe1_essential'), seeds = 1:1)
+single_pert_jobs <- make_single_perturbation_jobs(datasets = c("adamson", 'replogle_k562_essential', 'replogle_rpe1_essential'), seeds = 1:2)
 write_rds(single_pert_jobs, "tmp/single_perturbation_jobs.RDS")
 stat <- map_chr(single_pert_jobs$dependencies, job_status); table(stat)
 run_job(single_pert_jobs, priority = "normal")

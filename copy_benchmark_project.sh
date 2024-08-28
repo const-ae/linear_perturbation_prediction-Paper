@@ -17,6 +17,8 @@ rsync \
    --filter="+ /submission/**" \
    --filter="+ /src" \
    --filter="+ /src/**" \
+   --filter="+ /conda_environments" \
+   --filter="+ /conda_environments/**" \
    --filter="+ /output" \
    --filter="+ /output/**" \
    --filter="- /**" \
