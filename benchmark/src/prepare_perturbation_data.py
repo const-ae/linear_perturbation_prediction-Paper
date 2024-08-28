@@ -89,12 +89,12 @@ if args.dataset_name == "norman":
   single_pert = [x for x in conds if 'ctrl' in x]
   double_pert = np.setdiff1d(conds, single_pert).tolist()
   double_training = np.random.choice(double_pert, size=len(double_pert) // 2, replace=False).tolist()
-  double_test = np.setdiff1d(double_pert, double_training).tolist()[0]
-  double_holdout = np.setdiff1d(double_pert, double_training + [double_test]).tolist()
-  
+  double_test = np.setdiff1d(double_pert, double_training).tolist()
+  double_test = double_test[0:(len(double_test)//2)]
+  double_holdout = np.setdiff1d(double_pert, double_training + double_test).tolist()
   set2conditions = {
       "train": single_pert + double_training,
-      "test": [double_test],
+      "test": double_test,
       "val": double_holdout
   }
 elif args.dataset_name == "norman_from_scfoundation":
@@ -105,11 +105,12 @@ elif args.dataset_name == "norman_from_scfoundation":
   single_pert = [x for x in conds if 'ctrl' in x]
   double_pert = np.setdiff1d(conds, single_pert).tolist()
   double_training = np.random.choice(double_pert, size=len(double_pert) // 2, replace=False).tolist()
-  double_test = np.setdiff1d(double_pert, double_training).tolist()[0]
-  double_holdout = np.setdiff1d(double_pert, double_training + [double_test]).tolist()
+  double_test = np.setdiff1d(double_pert, double_training).tolist()
+  double_test =  np.random.choice(double_test, size = len(double_test)//2, replace = False).tolist()
+  double_holdout = np.setdiff1d(double_pert, double_training + double_test).tolist()
   set2conditions = {
       "train": single_pert + double_training,
-      "test": [double_test],
+      "test": double_test,
       "val": double_holdout
   }
 else:
