@@ -81,6 +81,14 @@ baselines <- res %>%
   dplyr::select(baseline = prediction, dataset_name, seed)
 ```
 
+```{r, paged.print=FALSE}
+res <- bind_rows(res, res %>%
+  distinct(perturbation, perturbation_split, dataset_name, test_train_config_id, seed, train) %>%
+  inner_join(baselines %>% dplyr::rename(prediction = baseline), by = c("dataset_name", "seed")) %>%
+  mutate(method = "no_change"))
+```
+
+
 
 ```{r, paged.print=FALSE}
 expr_rank_df <- res %>%
@@ -112,6 +120,11 @@ de_rank_df <- res %>%
 ```
 
 
+```{r}
+mem.maxVSize(vsize = Inf)
+```
+
+
 ```{r, paged.print=FALSE}
 contr_res <- tidylog::full_join(filter(res, method != "ground_truth"),
                                 filter(res, method == "ground_truth") %>% dplyr::select(dataset_name, seed, perturbation, observed = prediction),
@@ -135,7 +148,7 @@ res_metrics
 
 
 ```{r, paged.print=FALSE}
-method_labels <- c("gears" = "GEARS", "scgpt" = "scGPT", "scfoundation" = "scFoundation", "additive_model" = "Additive")
+method_labels <- c("gears" = "GEARS", "scgpt" = "scGPT", "scfoundation" = "scFoundation", "additive_model" = "Additive", "lpm" = "LPM", "no_change" = "No Change")
 dataset_labels <- c("norman_from_scfoundation" = "Norman")
 
 main_pl_data <- res_metrics %>%
@@ -224,9 +237,9 @@ ground_truth_df <- res %>%
   filter(method == "ground_truth") %>%
   mutate(perturbation_split = map(perturbation_split, sort, method = "radix")) %>%
   dplyr::select(perturbation, perturbation_split, seed, train, ground_truth = prediction) %>%
-  inner_join(all_combs, by = c("perturbation_split" = "combs")) %>%
+  inner_join(all_combs, by = c("perturbation_split" = "combs"), relationship = "many-to-many") %>% 
   unnest_named_lists(ground_truth, names_to = "gene_name") %>%
-  pivot_wider(id_cols = c(gene_name, pert_group), names_from = labels, values_from = ground_truth) %>%
+  pivot_wider(id_cols = c(gene_name, pert_group, seed), names_from = labels, values_from = ground_truth) %>%
   mutate(error = `AB` - (A + B - ctrl)) %>%
   # mutate(error_clever = broom::augment(lm(`AB` - ctrl ~ I(A - ctrl) + I(B - ctrl) - 1))$.resid, .by = pert_group)
   mutate(error_clever = broom::augment(lm(`AB` - ctrl ~ I(A - ctrl + B - ctrl) - 1))$.resid, .by = pert_group)
@@ -364,14 +377,17 @@ plot_assemble(
 
 ```{r, paged.print=FALSE}
 filter_gt_df <- ground_truth_df %>%
-  left_join(expr_rank_df %>% dplyr::select(gene_name, rank = expr_rank), by = c("gene_name")) %>%
-  filter(rank <= 1000) 
+  inner_join(expr_rank_df %>% dplyr::select(gene_name, seed, rank = expr_rank) %>% filter(rank <= 1000) , by = c("gene_name", "seed")) 
+  
 
 probs <- c(0.3, 0.7)
 xcoords <- qnorm(p = probs)
 ycoords <- quantile(filter_gt_df$error, prob = probs)
 sd_est <- unname(diff(ycoords) / diff(xcoords))
 mean_est <- mean(ycoords)
+
+# Doesn't work
+# locfdr:::locmle(filter_gt_df$error, xlim = c(0, 1))
 
 annotate_ticks <- function(origin = c(0,0), dir = c(1,0), at = seq(-10, 10), length = 0.1, ...){
   orth_dir <- c(dir[2], -dir[1])
@@ -406,7 +422,7 @@ qq_pl <- filter_gt_df %>%
     coord_fixed() +
     labs(title = "Quantile-Quantile plot of the deviation from the additive model",
          x = "Quantiles of a standard normal distribution", y = "Quantiles of the\ntrue deviation from additive model")
-
+qq_pl
 ```
 
 
@@ -435,6 +451,7 @@ slice_first <- function(data, condition, order_by = row_number(), ...){
 }
 
 dens_ratio_df <- filter_gt_df %>%
+  filter(seed == 1) %>%
   mutate(obs_dens = error |> (\(err){
     dens <- density(err, bw = "nrd0")
     approx(dens$x, dens$y, err)$y
@@ -466,6 +483,10 @@ error_histogram <- dens_ratio_df %>%
 error_histogram
 ```
 
+
+```{r}
+locfdr::locfdr()
+```
 
 
 
@@ -556,19 +577,18 @@ strat_pl
 
 
 ```{r, paged.print=FALSE}
-threshold <- 0.25
 
 inter_pred_dat <- res %>%
-  filter(seed == 1) %>%
+  # filter(seed == 1) %>%
   filter(train %in% c("test", "val")) %>%
   filter(lengths(map(perturbation_split, \(x) setdiff(x, "ctrl"))) == 2) %>%
   tidylog::left_join(baselines, by = c("dataset_name", "seed")) %>%
-  dplyr::select(perturbation, method, prediction, baseline) %>%
+  dplyr::select(perturbation, method, seed, prediction, baseline) %>%
   mutate(gene_name = map(prediction, names)) %>%
   unnest(c(gene_name, prediction, baseline)) %>%
-  inner_join(expr_rank_df %>% dplyr::select(gene_name, expr_rank) %>% filter(expr_rank <= 1000), by = c("gene_name")) %>%
-  pivot_wider(id_cols = c(perturbation, gene_name, baseline), names_from = method, values_from = prediction) %>%
-  pivot_longer(c(scgpt, gears, scfoundation), names_to = "method") 
+  inner_join(expr_rank_df %>% dplyr::select(gene_name, seed, expr_rank) %>% filter(expr_rank <= 1000), by = c("gene_name", "seed")) %>%
+  pivot_wider(id_cols = c(perturbation, gene_name, baseline, seed), names_from = method, values_from = prediction) %>%
+  pivot_longer(c(scgpt, gears, scfoundation, lpm, no_change), names_to = "method") 
 ```
 
 ```{r}
@@ -632,8 +652,8 @@ tibble(x = points[1,], y = points[2,]) %>%
 ```
 
 ```{r, paged.print=FALSE}
-lower_thres_fun1 <- nonlin_fun(p1 = c(lower_thres, -0.6), p2 = c(0, lower_thres), vec1 = c(0.01, 0.1), vec2 = 0.2 * c(1,1), extrapolate_factor = c(2, 0))
-lower_thres_fun2 <- nonlin_fun(p1 = c(0.6, upper_thres), p2 = c(upper_thres, 0), vec1 = -c(0.1, 0.01), vec2 = -0.2 * c(1,1), extrapolate_factor = c(2, 0))
+lower_thres_fun1 <- nonlin_fun(p1 = c(-threshold, -0.6), p2 = c(0, -threshold), vec1 = c(0.01, 0.1), vec2 = 0.2 * c(1,1), extrapolate_factor = c(2, 0))
+lower_thres_fun2 <- nonlin_fun(p1 = c(0.6, threshold), p2 = c(0, -threshold), vec1 = -c(0.1, 0.01), vec2 = -0.2 * c(1,1), extrapolate_factor = c(2, 0))
 upper_thres_fun1 <- nonlin_fun(p1 = c(threshold, 0.6), p2 = c(0, threshold), vec1 = -c(0.01, 0.1), vec2 = -0.2 * c(1,1), extrapolate_factor = c(2, 0))
 upper_thres_fun2 <- nonlin_fun(p1 = c(-0.6,-threshold), p2 = c(0, threshold), vec1 =  c(0.1, 0.01), vec2 = 0.2 * c(1,1), extrapolate_factor = c(2, 0))
 `%|%` <- rlang::`%|%`
@@ -642,18 +662,18 @@ upper_thres_fun2 <- nonlin_fun(p1 = c(-0.6,-threshold), p2 = c(0, threshold), ve
 label_interaction_pred <- inter_pred_dat %>%
   mutate(obs_minus_add = ground_truth - additive_model,
          pred_minus_add = value - additive_model) %>%
-  mutate(pred_too_low = pred_minus_add < (lower_thres_fun1(obs_minus_add) %|% lower_thres_fun2(obs_minus_add) %|% -Inf),
-         pred_too_high = pred_minus_add > (upper_thres_fun1(obs_minus_add) %|% upper_thres_fun2(obs_minus_add) %|% Inf)) %>%
-  mutate(prediction_label = case_when(
-    pred_too_low ~ "Prediction too low",
-    pred_too_high ~ "Prediction too high",
-    obs_minus_add + pred_minus_add < -2 * threshold ~ "Good suppression prediction",
-    obs_minus_add + pred_minus_add >  2 * threshold ~ "Good synergy prediction",
-    TRUE ~ "Good additive prediction"
-  )) %>%
-  mutate(prediction_label = factor(prediction_label, c("Good synergy prediction", "Prediction too high", "Good suppression prediction", 
-                                                       "Prediction too low", "Good additive prediction"))) %>%
-  mutate(method = factor(method, levels = c("gears", "scgpt", "scfoundation")))
+  # mutate(pred_too_low = pred_minus_add < (lower_thres_fun1(obs_minus_add) %|% lower_thres_fun2(obs_minus_add) %|% -Inf),
+  #        pred_too_high = pred_minus_add > (upper_thres_fun1(obs_minus_add) %|% upper_thres_fun2(obs_minus_add) %|% Inf)) %>%
+  # mutate(prediction_label = case_when(
+  #   pred_too_low ~ "Prediction too low",
+  #   pred_too_high ~ "Prediction too high",
+  #   obs_minus_add + pred_minus_add < -2 * threshold ~ "Good suppression prediction",
+  #   obs_minus_add + pred_minus_add >  2 * threshold ~ "Good synergy prediction",
+  #   TRUE ~ "Good additive prediction"
+  # )) %>%
+  # mutate(prediction_label = factor(prediction_label, c("Good synergy prediction", "Prediction too high", "Good suppression prediction", 
+  #                                                      "Prediction too low", "Good additive prediction"))) %>%
+  mutate(method = factor(method, levels = names(method_labels)))
   
 pos_counts <- label_interaction_pred %>%
   dplyr::count(method, prediction_label) %>%
@@ -704,7 +724,198 @@ pert_pred_comparison
 
 
 
+```{r}
+lower_curve_df <- tribble(
+           ~x,          ~y,    ~angle,   ~handle_length,
+  lower_thres,        -0.6,       90,               0.1,
+            0, lower_thres,       45,               0.1,
+  upper_thres,           0,       45,               0.1,
+          0.6, upper_thres,        0,               0.1,
+)
 
+label_interaction_pred %>%  
+  mutate(prediction_label = case_when(
+    obs_minus_add > upper_thres & pred_minus_add > upper_thres ~ "Good synergy prediction",
+    obs_minus_add < lower_thres & pred_minus_add < lower_thres ~ "Good suppression prediction",
+    obs_minus_add > lower_thres & obs_minus_add < upper_thres & 
+      pred_minus_add > lower_thres & pred_minus_add < upper_thres ~ "Good additive prediction",
+    TRUE ~ "bad prediction"
+  )) %>%
+  ggplot(aes(x = obs_minus_add, y = pred_minus_add)) +
+    ggrastr::rasterize(geom_point(aes(color = prediction_label), size = 0.1, stroke = 0), dpi = 600) +
+    geom_abline(slope = 1, intercept = 0, linetype = "dashed", alpha = 0.3) +
+    geom_hline(yintercept = c(lower_thres, upper_thres), linewidth = 0.2) +
+    geom_vline(xintercept = c(lower_thres, upper_thres), linewidth = 0.2) +
+    # ggbezier::geom_bezier(data = lower_curve_df, aes(x = x, y = y, angle = angle, handle_length = handle_length), color = "darkgrey") +
+    # ggbezier::geom_bezier(data = lower_curve_df %>% mutate(z = x, x = y, y = z, angle = rev(angle)), 
+    #                       aes(x = x, y = y, angle = angle, handle_length = handle_length), color = "darkgrey") +
+    facet_wrap(vars(method), labeller = as_labeller(method_labels)) +
+    scale_x_continuous(expand = expansion(add = 0)) +
+    scale_y_continuous(expand = expansion(add = 0)) +
+    # scale_color_manual(values = color_scale) +
+    coord_fixed(xlim = c(-0.6, 0.6), ylim = c(-1.2, 1.2)) +
+    guides(color = guide_legend(override.aes = list(size = 2), ncol = 1)) +
+    labs(x = "True deviation from additive model ($\\textrm{observed value} - \\textrm{sum of single effects}$)", 
+         y = "Predicted deviation from additive model\n$\\textrm{predicted value} - \\textrm{sum of single effects}$", 
+         color = "") +
+    theme(panel.spacing.x = unit(4, "mm"))
+```
+
+```{r, paged.print=FALSE}
+label_interaction_pred %>%
+  summarize(cor = cor(obs_minus_add, pred_minus_add), .by = method)
+
+clamp <- function(x, max, min = -max){
+  case_when(
+    x > max ~ max,
+    x < min ~ min,
+    .default = x
+  )
+}
+
+label_interaction_pred %>%
+  mutate(prediction_label = case_when(
+    obs_minus_add > upper_thres ~ "True synergy",
+    obs_minus_add < lower_thres ~ "True suppression",
+    TRUE ~ "True additive"
+  )) %>%
+  mutate(pred_minus_add = clamp(pred_minus_add, max = 0.8)) %>%
+  ggplot(aes(x = pred_minus_add, fill = prediction_label)) +
+    geom_histogram(bins = 100) +
+    scale_x_continuous(limits = c(-0.8, 0.8)) +
+    facet_wrap(vars(method))
+
+pred_label_qual_df <- label_interaction_pred %>%
+  mutate(prediction_label = case_when(
+    obs_minus_add > upper_thres ~ "True synergy",
+    obs_minus_add < lower_thres ~ "True suppression",
+    TRUE ~ "True additive"
+  )) %>%
+  mutate(pred_minus_add = clamp(pred_minus_add, max = 0.8)) %>%
+  mutate(pred_minus_add_bin = santoku::chop_equally(pred_minus_add, groups = 200), .by = c(method)) %>%
+  mutate(bin_num = bin_numeric(as.character(pred_minus_add_bin))) %>%
+  count(bin_num, pred_minus_add_bin, prediction_label, method) %>%
+  mutate(frac = n / sum(n), .by = c(bin_num, pred_minus_add_bin, method)) 
+
+
+pred_label_qual_df %>%
+  mutate(lower = cumsum(lag(n, default = 0)),
+         upper = cumsum(n), 
+         .by = c(method, bin_num, pred_minus_add_bin)) %>%
+  mutate(bin_num = (bin_num - rowMeans(bin_num)) * 0.95 + rowMeans(bin_num)) %>%
+  ggplot(aes(xmin = bin_num[,1], xmax = bin_num[,2], ymin = lower, ymax = upper)) +
+    geom_rect(aes(fill = prediction_label), show.legend = FALSE) +
+    scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
+    # labs(y = "density", x = "Deviation from additive model") +
+    facet_wrap(vars(method), labeller = as_labeller(method_labels))
+
+pred_label_qual_df %>%
+  mutate(lower = cumsum(lag(n, default = 0)),
+         upper = cumsum(n), 
+         .by = c(method, bin_num, pred_minus_add_bin)) %>%
+  mutate(bin_num = (bin_num - rowMeans(bin_num)) * 0.95 + rowMeans(bin_num)) %>%
+  ggplot(aes(xmin = bin_num[,1], xmax = bin_num[,2], ymin = lower, ymax = upper)) +
+    geom_rect(aes(fill = prediction_label), show.legend = FALSE) +
+    scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
+    facet_wrap(vars(method), labeller = as_labeller(method_labels))
+
+pred_label_qual_df %>%
+  mutate(lower = cumsum(lag(n, default = 0)),
+         upper = cumsum(n), 
+         .by = c(method, bin_num, pred_minus_add_bin)) %>%
+  mutate(bin_mean = rowMeans(bin_num)) %>%
+  ggplot(aes(xmin = bin_mean-0.01, xmax = bin_mean + 0.01, ymin = lower, ymax = upper)) +
+    geom_rect(aes(fill = prediction_label), show.legend = FALSE) +
+    scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
+    facet_wrap(vars(method), labeller = as_labeller(method_labels))
+
+pred_label_qual_df %>%
+  filter(prediction_label == "True synergy") %>%
+  ggplot(aes(x = bin_num[,1], y = frac)) +
+    geom_step(aes(color = method), direction = "mid")
+
+```
+
+
+```{r, paged.print=FALSE}
+label_interaction_pred %>%
+  mutate(prediction_label = case_when(
+    obs_minus_add > upper_thres ~ "True synergy",
+    obs_minus_add < lower_thres ~ "True suppression",
+    TRUE ~ "True additive"
+  )) %>%
+  filter(pred_minus_add > 0.5) %>%
+  filter(method == "scgpt") %>%
+  mutate(prediction_label = factor(prediction_label, levels = c("True synergy", "True suppression", "True additive"))) %>%
+  arrange(prediction_label, perturbation, desc(obs_minus_add)) %>%
+  print(n = 200)
+
+
+label_interaction_pred %>%
+  mutate(prediction_label = case_when(
+    obs_minus_add > upper_thres ~ "True synergy",
+    obs_minus_add < lower_thres ~ "True suppression",
+    TRUE ~ "True additive"
+  )) %>%
+  filter(pred_minus_add > 0.5) %>%
+  filter(method == "scgpt") %>%
+  mutate(n_perts = length(unique(perturbation))) %>%
+  summarize(n = n(), .by = c(gene_name, prediction_label, n_perts)) %>%
+  filter(prediction_label == "True synergy") %>%
+  arrange(desc(n))
+```
+
+```{r, paged.print=FALSE}
+label_interaction_pred %>%
+  mutate(prediction_label = case_when(
+    obs_minus_add > upper_thres ~ "True synergy",
+    obs_minus_add < lower_thres ~ "True suppression",
+    TRUE ~ "True additive"
+  )) %>%
+  filter(method == "scgpt" & seed == 3) %>%
+  arrange(desc(pred_minus_add)) %>%
+  mutate(tp = cumsum(obs_minus_add > upper_thres),
+         fp = cumsum(obs_minus_add < upper_thres)) %>%
+  mutate(fdp = fp / pmax(1, fp + tp)) %>%
+  slice_max(pred_minus_add, n = 100, by = c(method, seed)) %>%
+  print(n = 100)
+```
+
+
+```{r, paged.print=FALSE}
+approx2 <- function(x, y, ...){
+  data <- tibble({{x}}, {{y}})
+  tmp <- as_tibble(approx(data[[1]], data[[2]], ...))
+  colnames(tmp) <- colnames(data)
+  tmp
+}
+
+label_interaction_pred %>%
+  mutate(prediction_label = case_when(
+    obs_minus_add > upper_thres ~ "True synergy",
+    obs_minus_add < lower_thres ~ "True suppression",
+    TRUE ~ "True additive"
+  )) %>%
+  group_by(method, seed) %>%
+  arrange(desc(pred_minus_add)) %>%
+  mutate(tp = cumsum(obs_minus_add > upper_thres),
+         fp = cumsum(obs_minus_add < upper_thres)) %>%
+  mutate(fdp = fp / pmax(1, fp + tp)) %>%
+  arrange(fdp) %>%
+  mutate(tp = cummax(tp)) %>%
+  # mutate(tpr = tp / sum(obs_minus_add > upper_thres)) %>%
+  # reframe(tmp = approx2(fdp, tpr, xout = seq(0, 1, length.out = 101), yleft = 0, yright = 1)) %>%
+  # ungroup() %>%
+  # unnest(tmp) %>%
+  # summarize(tpr = median(tpr), .by = c(method, fdp)) %>%
+  # print(n = 300)
+  filter(seed == 1) %>%
+  ggplot(aes(x = fdp, y = tp)) +
+    # geom_line(aes(color = method, group = paste0(method, "-", seed))) +
+    geom_step(aes(color = method), direction = "hv") +
+    # scale_y_log10() +
+    NULL
+```
 
 
 ```{r}

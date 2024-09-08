@@ -1,0 +1,108 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+```{r}
+library(tidyverse)
+source("../notebooks/util.R")
+```
+
+```{r, paged.print=FALSE}
+pert_res <- bind_rows(readRDS(file.path("../benchmark/output/perturbation_results_predictions.RDS")))
+parameters <- readRDS(file.path("../benchmark/output/perturbation_results_parameters.RDS")) %>%
+  map(\(p) tibble(id = p$id, name = p$name, parameters = as_tibble(p$parameters), 
+                  train = names(p$test_train_labels), perturbation = p$test_train_labels)) %>%
+  bind_rows() %>%
+  unnest(perturbation) %>%
+  unpack(parameters)
+```
+
+
+```{r, paged.print=FALSE}
+res <- pert_res %>%
+  mutate(perturbation_split = str_split(perturbation, pattern = "[+_]", n = 2)) %>%
+  mutate(perturbation_split = map(perturbation_split, \(x) {
+    if(all(x == "ctrl" | x == "")) "ctrl" 
+    else if(length(x) == 2) x
+    else c(x, "ctrl")
+  })) %>%
+  mutate(perturbation = map_chr(perturbation_split, paste0, collapse = "+")) %>%
+  tidylog::left_join(parameters, by = c("id", "name", "perturbation")) %>%
+  separate(name, into = c("dataset2", "seed2", "method"), sep = "-") %>%
+  mutate(single_pert = map_lgl(perturbation_split, \(x) "ctrl" %in% x)) %>%
+  dplyr::select(-c(id, test_train_config_id, dataset2, seed2), dataset = dataset_name) %>%
+  filter(method %in% c("additive_model", "ground_truth"))
+
+res
+```
+
+
+
+```{r, paged.print=FALSE}
+all_combs <- tibble(perturbation = res$perturbation |> discard(\(x) str_detect(x, "ctrl")) |> unique()) %>%
+  mutate(split = str_split(perturbation, "\\+")) %>%
+  mutate(combs = map(split, \(x) list(x, c(x[1], "ctrl"), c(x[2], "ctrl"), "ctrl")),
+         labels = map(split, \(x) c("AB", "A", "B", "ctrl"))) %>%
+  transmute(pert_group = perturbation, 
+            combs = map(combs, \(x) map(x, sort, method = "radix")),
+            labels) %>%
+  unnest(c(combs, labels))
+
+ground_truth_df <- res %>%
+  filter(method == "ground_truth") %>%
+  mutate(perturbation_split = map(perturbation_split, sort, method = "radix")) %>%
+  dplyr::select(perturbation, perturbation_split, seed, train, ground_truth = prediction) %>%
+  inner_join(all_combs, by = c("perturbation_split" = "combs")) %>%
+  unnest_named_lists(ground_truth, names_to = "gene_name") %>%
+  pivot_wider(id_cols = c(gene_name, pert_group), names_from = labels, values_from = ground_truth) %>%
+  mutate(error = `AB` - (A + B - ctrl)) %>%
+  # mutate(error_clever = broom::augment(lm(`AB` - ctrl ~ I(A - ctrl) + I(B - ctrl) - 1))$.resid, .by = pert_group)
+  mutate(error_clever = broom::augment(lm(`AB` - ctrl ~ I(A - ctrl + B - ctrl) - 1))$.resid, .by = pert_group)
+```
+
+
+
+
+```{r, paged.print=FALSE}
+long2matrix <- function(x, rows, cols, values, ...){
+  df_mat <- x |>
+    transmute({{rows}}, {{cols}}, {{values}}) |>
+    pivot_wider(id_cols = {{rows}}, names_from = {{cols}}, values_from = {{values}}, ...) 
+  mat<- as.matrix(df_mat[,-1])
+  rownames(mat) <- df_mat[[1]]
+  mat
+}
+
+clamp <- function(x, max,  min = -max){
+  dplyr::case_when(
+    x > max ~ max,
+    x < min ~ min,
+    .default = x
+  )
+}
+
+mat <- ground_truth_df %>%
+  # filter(error > 0.25) %>%
+  mutate(error = ifelse(error < 0.25 & error > -0.25, 0, error)) %>%
+  mutate(error = clamp(error, 0.8)) %>%
+  long2matrix(gene_name, pert_group, values = error) 
+
+hvgs <- order(-matrixStats::rowVars(mat))
+
+test_train_annot <- res %>%
+  filter(! single_pert) %>%
+  distinct(perturbation, train)
+
+pheatmap::pheatmap(mat[hvgs[1:1000],], annotation_col = test_train_annot |> column_to_rownames("perturbation"))
+```
+
+
+
+```{r}
+
+```
+
+
+

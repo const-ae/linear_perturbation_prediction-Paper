@@ -59,6 +59,7 @@ make_double_perturbation_jobs <- function(datasets = c('norman_from_scfoundation
         scgpt = scgpt_combinatorial_prediction(default_params, dep_jobs = list(config_job), memory = mem, duration = long_dur),
         gears = gears_combinatorial_prediction(default_params, dep_jobs = list(config_job), memory = mem),
         additive_model = additive_model_combinatorial_prediction(default_params, dep_jobs = list(config_job)),
+        lpm = run_lpm_double_perturbation(c(list(gene_embedding = "training_data", pert_embedding = "training_data"), default_params), dep_jobs = list(config_job)),
         ground_truth = ground_truth_combinatorial_prediction(default_params, dep_jobs = list(config_job), memory = mem),
         scfoundation = scfoundation_combinatorial_prediction(c(list(epochs = 5),default_params),, dep_jobs = list(config_job), memory = mem)
       )
