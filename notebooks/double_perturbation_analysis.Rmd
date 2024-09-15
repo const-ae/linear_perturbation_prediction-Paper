@@ -242,7 +242,7 @@ obs_pred_corr_pl <- contr_res %>%
     coord_fixed(xlim = c(-1, 1), ylim = c(-1, 1)) +
     scale_x_continuous(breaks = c(-1, 0, 1)) +
     scale_y_continuous(breaks = c(-1, 0, 1)) +
-    facet_wrap(vars(perturbation), ncol = 1) +
+    ggh4x::facet_wrap2(vars(perturbation), ncol = 1, strip = ggh4x::strip_vanilla(clip = "off")) +
     labs(x = "observed expression\nminus control", y = "predicted expression minus control\n(sum of single effects)")
 
 obs_pred_corr_pl
@@ -266,7 +266,6 @@ ground_truth_df <- res %>%
   unnest_named_lists(ground_truth, names_to = "gene_name") %>%
   pivot_wider(id_cols = c(gene_name, pert_group, seed), names_from = labels, values_from = ground_truth) %>%
   mutate(error = `AB` - (A + B - ctrl)) %>%
-  # mutate(error_clever = broom::augment(lm(`AB` - ctrl ~ I(A - ctrl) + I(B - ctrl) - 1))$.resid, .by = pert_group)
   mutate(error_clever = broom::augment(lm(`AB` - ctrl ~ I(A - ctrl + B - ctrl) - 1))$.resid, .by = pert_group)
 ```
 
@@ -336,7 +335,7 @@ qq_pl <- filter_gt_df %>%
     annotate_labels_along(dir = c(1, sd_est), at = 4.5, labels = "Percentile", offset = 0.15, size = font_size_small / .pt) +
     ggrastr::rasterize(geom_point(size = 0.3, stroke = 0), dpi = 300) +
     coord_fixed() +
-    labs(x = "Quantiles of a standard normal distribution", y = "Quantiles of the\ntrue deviation from additive model")
+    labs(x = "Quantiles of a standard normal distribution", y = "Quantiles of the\ntrue difference from additive model")
 qq_pl
 ```
 
@@ -365,6 +364,16 @@ dens_ratio_df <- filter_gt_df %>%
 # upper_thres <- dens_ratio_df %>% slice_first(ratio < 0.1 & error > 0, order_by = error) %>% pull(error)
 # lower_thres <- dens_ratio_df %>% slice_first(ratio < 0.1 & error < 0, order_by = desc(error)) %>% pull(error)
 
+count_labels <- filter_gt_df %>%
+  mutate(label = case_when(
+    error > upper_thres ~ "synergy",
+    error < lower_thres ~  "suppressive",
+    .default = "additive"
+  )) %>%
+  count(label) %>%
+  mutate(n = scales::label_comma()(n)) %>%
+  left_join(enframe(c(additive = 0, suppressive = -0.4, synergy = 0.4), name = "label", value = "pos"))
+
 error_histogram <- dens_ratio_df %>%
   mutate(error_bin = santoku::chop_width(error, width = 0.01)) %>%
   mutate(bin_num = bin_numeric(as.character(error_bin))) %>%
@@ -378,11 +387,11 @@ error_histogram <- dens_ratio_df %>%
     geom_col(aes(fill = origin), width = 0.01, position = "stack", show.legend = FALSE) +
     geom_function(fun = \(x)  p0_est * dnorm(x, mean = mean_est, sd = sd_est), n = 1e4, color = "red") +
     geom_vline(xintercept = c(lower_thres, upper_thres), color = "#040404", linewidth = 0.2) +
+    geom_text(data = count_labels, aes(x = pos, y = Inf, label = n), hjust = 0.5, vjust = 1.2, size = font_size_small / .pt) +
     scale_fill_manual(values = c("h0" = "lightgrey", "h1" = "black")) +
     scale_x_continuous(limits = c(-0.45, 0.45)) +
     scale_y_continuous(expand = expansion(mult = c(0, 0.1))) +
-    labs(y = "density", x = "Deviation from additive model",
-         )
+    labs(y = "density", x = "Difference from additive model")
 
 error_histogram
 ```
@@ -392,7 +401,7 @@ error_histogram
 
 ```{r}
 plot_assemble(
-  add_text("(A) Quantile-Quantile plot of the deviation from the additive model", 
+  add_text("(A) Quantile-Quantile plot of the difference from the additive model", 
            x = 2.7, y = 1, fontsize = font_size, vjust = 1, fontface = "bold"),
   add_plot(qq_pl, x = 3, y = 2, width = 120, height = 47.5),
   
@@ -433,13 +442,6 @@ strat_data_expr_rank <- strat_data_init %>%
          .by = c(dataset_name, seed, method, perturbation)) %>% 
   filter(rank %in% sel_ranks)
 
-# strat_data_expr_var_rank <- strat_data_init %>%
-#   left_join(expr_var_rank_df %>% dplyr::select(dataset_name, seed, gene_name, rank = var_rank) %>% filter(rank %in% sel_ranks), 
-#             by = c("dataset_name", "seed", "gene_name")) %>%
-#   arrange(rank) %>%
-#   mutate(dist = sqrt(cumsum((prediction - observed)^2)),
-#          .by = c(dataset_name, seed, method, perturbation))%>% 
-#   filter(rank %in% sel_ranks)
 
 strat_data_de_rank <- strat_data_init %>%
   left_join(de_rank_df %>% dplyr::select(dataset_name, seed, perturbation, gene_name, rank = de_rank), 
@@ -524,8 +526,8 @@ pert_pred_comparison <- inter_pred_dat %>%
     scale_color_manual(values = base_colors) +
     facet_wrap(vars(method), nrow = 1, labeller = as_labeller(method_labels)) +
     coord_fixed(xlim = c(-0.8, 0.8), ylim = c(-1.2, 1.2)) +
-    labs(x = "True deviation from additive model ($\\textrm{observed value} - \\textrm{sum of single effects}$)", 
-       y = "Predicted deviation from additive model\n$\\textrm{predicted value} - \\textrm{sum of single effects}$", 
+    labs(x = "True difference from additive model ($\\textrm{observed value} - \\textrm{sum of single effects}$)", 
+       y = "Predicted difference from additive model\n$\\textrm{predicted value} - \\textrm{sum of single effects}$", 
        color = "") +
     guides(color = guide_legend(override.aes = list(size = 2), nrow = 1)) +
     theme(panel.spacing.x = unit(4, "mm"), legend.position = "bottom")
@@ -726,6 +728,19 @@ top_perturbation_reoccurence_plot
 ```
 
 ```{r, paged.print=FALSE}
+top_gene_reoccurence %>%
+  filter(method != "ground_truth") %>%
+  summarize(top_six = sum(n[gene_name != "Other"]), .by = c(seed, method)) %>%
+  pull(top_six) %>% summary()
+
+top_gene_reoccurence %>%
+  filter(method == "ground_truth") %>%
+  summarize(top_six = sum(n[gene_name != "Other"]), .by = c(seed, method)) %>%
+  pull(top_six) %>% summary()
+```
+
+
+```{r, paged.print=FALSE}
 
 expression_plot <- inter_pred_dat %>%
   filter(seed == 1) %>%
@@ -846,7 +861,7 @@ mem_pl <- norman_df %>%
   filter(method != "ground_truth") %>%
   mutate(method = factor(method, levels = names(method_labels))) %>%
   ggplot(aes(x = method, y = value * 1000)) +
-    geom_point() +
+    ggbeeswarm::geom_quasirandom(width = 0.2) +
     scale_y_continuous(labels = scales::label_bytes()) +
     scale_x_discrete(labels = method_labels) +
     labs(y = "Peak memory usage", x = "") +
@@ -857,13 +872,14 @@ dur_pl <- norman_df %>%
   filter(method != "ground_truth") %>%
   mutate(method = factor(method, levels = names(method_labels))) %>%
   ggplot(aes(x = method, y = value)) +
-    geom_point() +
+    ggbeeswarm::geom_quasirandom(width = 0.2) +
     scale_y_log10(limits = c(60, NA), breaks = c(60, 10 * 60, 60 * 60, 6 * 60 * 60, 60 * 60 * 24, 3 * 60 * 60 * 24), 
                   labels = c("1 min", "10 min", "1 hour", "6 hours", "1 day", "3 days")) +
     scale_x_discrete(labels = method_labels) +
     labs(y = "Duration", x = "") +
     theme(panel.grid.major.y = element_line(color = "lightgrey", linewidth = 0.2))
 
+mem_pl
 dur_pl
 ```
 
