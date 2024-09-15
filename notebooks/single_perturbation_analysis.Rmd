@@ -7,7 +7,6 @@ title: "R Notebook"
 library(tidyverse)
 library(glue)
 source("util.R")
-
 ```
 
 
@@ -106,15 +105,6 @@ expr_rank_df <- res %>%
   unnest(c(gene_name, observed)) %>%
   mutate(expr_rank = rank(desc(observed), ties = "first"), .by = c(seed, dataset_name)) %>%
   dplyr::select(dataset_name, seed, gene_name, expr_rank)
-
-expr_var_rank_df <- res %>%
-  filter(method == "ground_truth") %>% 
-  dplyr::select(dataset_name, seed, perturbation, observed = prediction) %>%
-  mutate(gene_name = map(observed, names)) %>%
-  unnest(c(gene_name, observed)) %>%
-  summarize(var = var(observed), .by = c(dataset_name, seed, gene_name)) %>%
-  mutate(var_rank = rank(desc(var), ties = "first"), .by = c(seed, dataset_name)) %>%
-  dplyr::select(dataset_name, seed, gene_name, var_rank)
   
 de_rank_df <- res %>%
   filter(method == "ground_truth") %>% 
@@ -126,14 +116,18 @@ de_rank_df <- res %>%
   dplyr::select(dataset_name, seed, perturbation, gene_name, de_rank)
 ```
 
+```{r}
+mem.maxVSize(vsize = Inf)
+```
 
 
 ```{r, paged.print=FALSE}
 contr_res <- tidylog::full_join(filter(res, method != "ground_truth"),
-                                filter(res, method == "ground_truth") %>% dplyr::select(dataset_name, seed, perturbation, observed = prediction),
+                                filter(res, method == "ground_truth") %>% 
+                                  dplyr::select(dataset_name, seed, perturbation, observed = prediction),
            by = c("dataset_name", "seed", "perturbation"))
 
-# Takes 2min
+# Takes 7 min
 system.time({
   full_long_df <- contr_res %>%
     tidylog::left_join(baselines, by = c("dataset_name", "seed")) %>%
@@ -143,7 +137,8 @@ system.time({
 })
 
 res_metrics <- full_long_df %>%
-  inner_join(expr_rank_df %>% dplyr::select(dataset_name, seed, gene_name, expr_rank) %>% filter(expr_rank <= 1000), by = c("dataset_name", "seed", "gene_name")) %>%
+  inner_join(expr_rank_df %>% dplyr::select(dataset_name, seed, gene_name, expr_rank) %>% 
+               filter(expr_rank <= 1000), by = c("dataset_name", "seed", "gene_name")) %>%
   filter(! if_any(c(prediction, baseline, observed), is.na)) %>%
   summarize(r2 = cor(prediction, observed),
          r2_delta = cor(prediction - baseline, observed - baseline),
@@ -208,28 +203,44 @@ main_pl_l2
 ```
 
 
+```{r}
+tibble(x = c("a","c")) %>%
+  mutate(x = factor(x, levels = c("a", "b","c", "D", "E"))) %>%
+  bind_rows(tibble(x = "b", remove  =TRUE) %>% mutate(x = factor(x, levels = c("a", "b","c", "D", "E")))) %>%
+  ggplot(aes(x = x, y = 1)) +
+    geom_point(data = . %>% filter(is.na(remove))) +
+    geom_blank(data = . %>% filter(remove)) +
+    scale_x_discrete(drop=TRUE, limits = c("a", "b", "c", "D"))
+```
+
+
 
 Head line figure:
 
 ```{r, paged.print=FALSE}
 headline_labels <- c("gears" = "GEARS", "scgpt" = "scGPT", "scfoundation" = "scFoundation",
                      "lpm_selftrained" = "LPM with $\\matr{G}$,$\\matr{P}$\nfrom training",
+                     "lpm_k562PertEmb" = "LPM with $\\matr{P}$ from\nK562 Replogle",
+                     "lpm_rpe1PertEmb" = "LPM with $\\matr{P}$ from\nRPE1 Replogle",
                      "lpm_pertEmb" = "LPM with $\\matr{P}$\nfrom Replogle")
 
 main_pl <- main_pl_data %>%
   filter(method %in% c("gears", "scgpt", "scfoundation", "lpm_selftrained") |
            (dataset_name %in% c("adamson", "replogle_rpe1_essential") & method == "lpm_k562PertEmb") |
            (dataset_name %in% c("replogle_k562_essential") & method == "lpm_rpe1PertEmb")) %>%
-  mutate(method = if_else(str_detect(method, "lpm_((k562)|(rpe1))PertEmb"), "lpm_pertEmb", method)) %>%
+  # mutate(method = if_else(str_detect(method, "lpm_((k562)|(rpe1))PertEmb"), "lpm_pertEmb", method)) %>%
+  bind_rows(tibble(dataset_name = names(dataset_labels), method = "scfoundation", l2  = 5)) %>%
   mutate(method = factor(method, levels = names(headline_labels))) %>%
   ggplot(aes(x = method, y = l2)) +
     geom_hline(yintercept = 0, color = "black", linewidth = 0.2) +
-    ggrastr::rasterize(ggbeeswarm::geom_quasirandom(color = alpha("#444444", 0.6), size = 0.6, stroke = 0, width = 0.3), dpi=600) +
-    stat_summary(geom = "crossbar", fun = mean, color = "red") +
+    ggrastr::rasterize(ggbeeswarm::geom_quasirandom(aes(alpha = method == "scfoundation"),
+                                                    color = "#444444", size = 0.6, stroke = 0, width = 0.3), dpi=600) +
+    stat_summary(data = . %>% filter(method != "scfoundation"), geom = "crossbar", fun = mean, color = "red") +
     facet_wrap(vars(dataset_name), scales = "free_x", labeller = as_labeller(dataset_labels), nrow = 1) +
-    scale_x_discrete(labels = headline_labels, drop=FALSE) +
+    scale_x_discrete(labels = headline_labels, drop=TRUE) +
     scale_y_continuous(limits = c(0, NA), expand = expansion(add = c(0, 0.5))) +
-    guides(x = guide_axis(angle = 90), color = "none") +
+    scale_alpha_manual(values = c("TRUE" = 0, "FALSE" = 0.6)) +
+    guides(x = guide_axis(angle = 90), color = "none", alpha = "none") +
     labs(y = "Prediction error ($L_2$)") +
     theme(axis.title.x = element_blank(),
           axis.text.x = element_text(lineheight = 0.7),
@@ -237,17 +248,66 @@ main_pl <- main_pl_data %>%
           panel.grid.minor.y = element_line(color = "lightgrey", linewidth = 0.1),
           panel.spacing.x = unit(5, "mm"))
 
+pearson_delta_plot <- main_pl_data %>%
+  filter(method %in% c("gears", "scgpt", "scfoundation", "lpm_selftrained") |
+           (dataset_name %in% c("adamson", "replogle_rpe1_essential") & method == "lpm_k562PertEmb") |
+           (dataset_name %in% c("replogle_k562_essential") & method == "lpm_rpe1PertEmb")) %>%
+  bind_rows(tibble(dataset_name = names(dataset_labels), method = "scfoundation", r2_delta  = 0.5)) %>%
+  mutate(method = factor(method, levels = names(headline_labels))) %>%
+  ggplot(aes(x = method, y = r2_delta)) +
+    geom_hline(yintercept = 0, color = "black", linewidth = 0.2) +
+    ggrastr::rasterize(ggbeeswarm::geom_quasirandom(aes(alpha = method == "scfoundation"),
+                                                    color = "#444444", size = 0.6, stroke = 0, width = 0.3), dpi=600) +
+    stat_summary(data = . %>% filter(method != "scfoundation"), geom = "crossbar", fun = mean, color = "red") +
+    facet_wrap(vars(dataset_name), scales = "free_x", labeller = as_labeller(dataset_labels), nrow = 1) +
+    scale_x_discrete(labels = headline_labels, drop=TRUE) +
+    # scale_y_continuous(limits = c(0, NA), expand = expansion(add = c(0, 0.5))) +
+    scale_alpha_manual(values = c("TRUE" = 0, "FALSE" = 0.6)) +
+    guides(x = guide_axis(angle = 90), color = "none", alpha = "none") +
+    labs(y = "Pearson Delta") +
+    theme(axis.title.x = element_blank(),
+          axis.text.x = element_text(lineheight = 0.7),
+          panel.grid.major.y = element_line(color = "lightgrey", linewidth = 0.1),
+          panel.grid.minor.y = element_line(color = "lightgrey", linewidth = 0.1),
+          panel.spacing.x = unit(5, "mm"))
+
+
 main_pl
+pearson_delta_plot
+```
+
+```{r}
+plot_assemble(
+  add_text("(A) Single perturbation prediction correlation", 
+           x = 2.7, y = 1, fontsize = font_size, vjust = 1, fontface = "bold"),
+  add_plot(pearson_delta_plot, x = 3, y = 2, width = 110, height = 47.5),
+  
+  
+  width = 170, height = 50, units = "mm", show_grid_lines = FALSE,
+  latex_support = TRUE, filename = "../plots/suppl-pearson_delta_performance_single_pert.pdf"
+)
 ```
 
 
 ```{r, paged.print=FALSE}
+sel_ranks <- c(seq(1, 100, by = 1), seq(101, 1000, by = 10), seq(1001, 19264, by = 100))
+
+strat_data_init <- contr_res %>%
+  filter(train != "train") %>%
+  tidylog::left_join(baselines, by = c("dataset_name", "seed")) %>%
+  dplyr::select(-c(id, test_train_config_id, prediction_std)) %>%
+  mutate(gene_name = map(prediction, names)) %>%
+  unnest(c(gene_name, prediction, observed, baseline))
+
 strat_data_expr_rank <- full_long_df %>%
   filter(train != "train") %>%
-  left_join(expr_rank_df %>% dplyr::select(dataset_name, seed, gene_name, rank = expr_rank), by = c("dataset_name", "seed", "gene_name")) %>%
+  left_join(expr_rank_df %>% distinct(gene_name, .keep_all=TRUE) %>%
+              dplyr::select(dataset_name, seed, gene_name, rank = expr_rank),
+            by = c("dataset_name", "seed", "gene_name")) %>%
   arrange(rank) %>%
   mutate(dist = sqrt(cumsum((prediction - observed)^2)),
-         .by = c(dataset_name, seed, method, perturbation))
+         .by = c(dataset_name, seed, method, perturbation))  %>% 
+  filter(rank %in% sel_ranks)
 
 strat_colors <- c("gears" = "#7CAE00", "scgpt" = "#C77CFF",
                   "lpm_selftrained" = colorspace::lighten("#F8766D", 0.2),
@@ -428,4 +488,11 @@ plot_assemble(
   latex_support = TRUE, filename = "../plots/single_perturbation_prediction.pdf"
 )
 ```
+
+# Session Info
+
+```{r}
+sessionInfo()
+```
+
 
