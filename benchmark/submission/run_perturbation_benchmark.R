@@ -59,7 +59,6 @@ make_double_perturbation_jobs <- function(datasets = c('norman_from_scfoundation
         scgpt = scgpt_combinatorial_prediction(default_params, dep_jobs = list(config_job), memory = mem, duration = long_dur),
         gears = gears_combinatorial_prediction(default_params, dep_jobs = list(config_job), memory = mem),
         additive_model = additive_model_combinatorial_prediction(default_params, dep_jobs = list(config_job)),
-        lpm = run_lpm_double_perturbation(c(list(gene_embedding = "training_data", pert_embedding = "training_data"), default_params), dep_jobs = list(config_job)),
         ground_truth = ground_truth_combinatorial_prediction(default_params, dep_jobs = list(config_job), memory = mem),
         scfoundation = scfoundation_combinatorial_prediction(c(list(epochs = 5),default_params),, dep_jobs = list(config_job), memory = mem)
       )
@@ -80,16 +79,16 @@ make_double_perturbation_jobs <- function(datasets = c('norman_from_scfoundation
 
 # Launch double perturbation jobs
 double_pert_jobs <- make_double_perturbation_jobs(datasets = c("norman_from_scfoundation"), seeds = 1:5)
-write_rds(double_pert_jobs, "tmp/double_perturbation_jobs.RDS")
 stat <- map_chr(double_pert_jobs$dependencies, job_status); table(stat)
+write_rds(double_pert_jobs, "tmp/double_perturbation_jobs.RDS")
 run_job(double_pert_jobs, priority = "normal")
 file.copy(file.path(result_file_path(double_pert_jobs), "predictions.RDS"), to = "output/double_perturbation_results_predictions.RDS", overwrite = TRUE)
 file.copy(file.path(result_file_path(double_pert_jobs), "parameters.RDS"), to = "output/double_perturbation_results_parameters.RDS", overwrite = TRUE)
 
 # Launch single perturbation jobs
 single_pert_jobs <- make_single_perturbation_jobs(datasets = c("adamson", 'replogle_k562_essential', 'replogle_rpe1_essential'), seeds = 1:2)
-write_rds(single_pert_jobs, "tmp/single_perturbation_jobs.RDS")
 stat <- map_chr(single_pert_jobs$dependencies, job_status); table(stat)
+write_rds(single_pert_jobs, "tmp/single_perturbation_jobs.RDS")
 run_job(single_pert_jobs, priority = "normal")
 file.copy(file.path(result_file_path(single_pert_jobs), "predictions.RDS"), to = "output/single_perturbation_results_predictions.RDS", overwrite = TRUE)
 file.copy(file.path(result_file_path(single_pert_jobs), "parameters.RDS"), to = "output/single_perturbation_results_parameters.RDS", overwrite = TRUE)

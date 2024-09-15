@@ -70,12 +70,6 @@ additive_model_combinatorial_prediction <- function(params, dep_jobs, duration =
                                  duration = duration, memory = memory)
 }
 
-run_lpm_double_perturbation  <- function(params, dep_jobs, duration = "01:00:00", memory = "40GB"){
-  MyWorkflowManager::wrap_script("src/run_lpm_double_prediction.R", params = params,  
-                                 dependencies = dep_jobs, executor = "R", 
-                                 duration = duration, memory = memory)
-}
-
 ground_truth_combinatorial_prediction <- function(params, dep_jobs, duration = "01:00:00", memory = "40GB"){
   MyWorkflowManager::wrap_script("src/run_ground_truth_for_combinatorial_perturbations.py", params = params, 
                                  dependencies = dep_jobs, executor = "python", 
