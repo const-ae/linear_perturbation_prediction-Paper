@@ -203,18 +203,6 @@ main_pl_l2
 ```
 
 
-```{r}
-tibble(x = c("a","c")) %>%
-  mutate(x = factor(x, levels = c("a", "b","c", "D", "E"))) %>%
-  bind_rows(tibble(x = "b", remove  =TRUE) %>% mutate(x = factor(x, levels = c("a", "b","c", "D", "E")))) %>%
-  ggplot(aes(x = x, y = 1)) +
-    geom_point(data = . %>% filter(is.na(remove))) +
-    geom_blank(data = . %>% filter(remove)) +
-    scale_x_discrete(drop=TRUE, limits = c("a", "b", "c", "D"))
-```
-
-
-
 Head line figure:
 
 ```{r, paged.print=FALSE}
