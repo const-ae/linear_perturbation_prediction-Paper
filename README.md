@@ -7,5 +7,5 @@ This repository contains the code to reproduce our analysis.
   - [Single Perturbation Analysis](https://htmlpreview.github.io/?https://github.com/const-ae/linear_perturbation_prediction-Paper/blob/main/notebooks/single_perturbation_analysis.html)
 - The **benchmark** folder contains the scripts to reproduce the benchmark results
   - The **benchmark/src** contains individual scripts to run each method
-  - The **benchmark/conda_environments** and **benchmark/renv** contain the details about the software versiona
-  - The **benchmark/submission** contains the script to launch the scripts using the my [custom](https://github.com/const-ae/MyWorkflowManager) workflow maanger
+  - The **benchmark/conda_environments** and **benchmark/renv** contain the details about the software versions
+  - The **benchmark/submission** contains the script to launch the scripts using my [custom](https://github.com/const-ae/MyWorkflowManager) workflow manager
