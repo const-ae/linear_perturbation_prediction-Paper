@@ -84,12 +84,6 @@ linear_pretrained_model_prediction <- function(params, dep_jobs, duration = "03:
                                  duration = duration, memory = memory)
 }
 
-linear_perturbation_prediction <- function(params, dep_jobs, duration = "03:00:00", memory = "60GB"){
-  MyWorkflowManager::wrap_script("src/run_linear_perturbation_prediction.R", params = params, 
-                                 dependencies = dep_jobs, executor = "R", 
-                                 duration = duration, memory = memory)
-}
-
 transfer_perturbation_prediction <- function(params, dep_jobs, duration = "03:00:00", memory = "60GB"){
   MyWorkflowManager::wrap_script("src/run_transfer_perturbation_prediction.R", params = params, 
                                  dependencies = dep_jobs, executor = "R", 
