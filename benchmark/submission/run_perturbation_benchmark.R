@@ -20,7 +20,7 @@ make_single_perturbation_jobs <- function(datasets = c('adamson', 'replogle_k562
       
       
       pert_jobs <- list(
-        scgpt = scgpt_combinatorial_prediction(default_params, dep_jobs = list(config_job)),
+        scgpt = scgpt_combinatorial_prediction(default_params, dep_jobs = list(config_job), duration = "30:00:00"),
         gears = gears_combinatorial_prediction(default_params, dep_jobs = list(config_job)),
         ground_truth = ground_truth_combinatorial_prediction(default_params, dep_jobs = list(config_job)),
         lpm_selftrained = linear_pretrained_model_prediction(c(list(gene_embedding = "training_data", pert_embedding = "training_data"), default_params), dep_jobs = list(config_job)),

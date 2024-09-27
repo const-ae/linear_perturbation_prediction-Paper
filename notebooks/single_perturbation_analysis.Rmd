@@ -264,6 +264,14 @@ main_pl
 pearson_delta_plot
 ```
 
+```{r, paged.print=FALSE}
+main_pl_data %>%
+  filter(method == "gears") %>%
+  count(dataset_name)
+```
+
+
+
 ```{r}
 plot_assemble(
   add_text("(A) Single perturbation prediction correlation", 

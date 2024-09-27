@@ -107,15 +107,6 @@ expr_rank_df <- res %>%
   unnest(c(gene_name, observed)) %>%
   mutate(expr_rank = rank(desc(observed), ties = "first"), .by = c(seed, dataset_name)) %>%
   dplyr::select(dataset_name, seed, gene_name, expr_rank)
-
-expr_var_rank_df <- res %>%
-  filter(method == "ground_truth") %>% 
-  dplyr::select(dataset_name, seed, perturbation, observed = prediction) %>%
-  mutate(gene_name = map(observed, names)) %>%
-  unnest(c(gene_name, observed)) %>%
-  summarize(var = var(observed), .by = c(dataset_name, seed, gene_name)) %>%
-  mutate(var_rank = rank(desc(var), ties = "first"), .by = c(seed, dataset_name)) %>%
-  dplyr::select(dataset_name, seed, gene_name, var_rank)
   
 de_rank_df <- res %>%
   filter(method == "ground_truth") %>% 

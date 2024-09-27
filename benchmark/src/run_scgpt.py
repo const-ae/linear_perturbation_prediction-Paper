@@ -78,6 +78,9 @@ from gears import PertData, GEARS
 from gears.inference import compute_metrics, deeper_analysis, non_dropout_analysis
 from gears.utils import create_cell_graph_dataset_for_prediction
 
+# The configuration is based on the https://scgpt.readthedocs.io/en/v0.2.1/tutorial_perturbation.html
+# Note that the values slightly differ from the values in https://github.com/bowang-lab/scGPT/blob/7301b51a72f5db321fccebb51bc4dd1380d99023/tutorials/Tutorial_Perturbation.ipynb
+
 # settings for data prcocessing
 pad_token = "<pad>"
 special_tokens = [pad_token, "<cls>", "<eoc>"]
@@ -153,7 +156,7 @@ pert_data.split = "custom"
 pert_data.subgroup = None
 pert_data.seed = 1
 pert_data.train_gene_set_size = 0.75
-pert_data.get_dataloader(batch_size = 32, test_batch_size = 128)
+pert_data.get_dataloader(batch_size = batch_size, test_batch_size = eval_batch_size)
 logger = scg.logger 
 
 
