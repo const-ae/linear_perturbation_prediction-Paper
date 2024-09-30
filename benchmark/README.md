@@ -57,19 +57,19 @@ python3 src/prepare_perturbation_data.py \
   --dataset_name adamson \
   --seed 1 \
   --working_dir /tmp/working_dir \
-  --result_id test_train_split
+  --result_id seed_1_adamson_split
 ```
 
-In the next step we will use the output (`/tmp/working_dir/results/test_train_split`) to run the linear model (`src/run_linear_pretrained_model.R`):
+In the next step we will use the output (`/tmp/working_dir/results/seed_1_adamson_split`) to run the linear model (`src/run_linear_pretrained_model.R`):
 ```shell
 Rscript --no-restore src/run_linear_pretrained_model.R \
     --dataset_name adamson \
-    --test_train_config_id test_train_split \
+    --test_train_config_id seed_1_adamson_split \
     --pca_dim 10 \
     --gene_embedding training_data \
     --pert_embedding training_data \
     --working_dir /tmp/working_dir \
-    --result_id linear_prediction
+    --result_id linear_results
 ```
 
 Similarly, we can now run scFoundation (`src/run_scfoundation.py`), GEARS (`src/run_gears.py`), or scGPT (`src/run_scgpt.py`). We can also calculate the ground truth by calling `src/ground_truth_combinatorial_prediction`. Just remember to load the right conda environment each time before executing the script.
@@ -78,23 +78,23 @@ Similarly, we can now run scFoundation (`src/run_scfoundation.py`), GEARS (`src/
 conda activate gears_env2
 python3 src/run_ground_truth_for_combinatorial_perturbations.py \
     --dataset_name adamson \
-    --test_train_config_id test_train_split \
+    --test_train_config_id seed_1_adamson_split \
     --working_dir /tmp/working_dir \
-    --result_id ground_truth
+    --result_id ground_truth_results
 
 conda activate flashattn_env    
 python3 src/run_scgpt.py \
     --dataset_name adamson \
-    --test_train_config_id test_train_split \
+    --test_train_config_id seed_1_adamson_split \
     --working_dir /tmp/working_dir \
-    --result_id ground_truth    
+    --result_id scgpt_results    
 
 conda activate gears_env2
 python3 src/run_gears.py \
     --dataset_name adamson \
-    --test_train_config_id test_train_split \
+    --test_train_config_id seed_1_adamson_split \
     --working_dir working_dir \
-    --result_id ground_truth
+    --result_id gears_results
 ```
 
 Each script produces a JSON file with the predictions of the gene expression for each perturbation and one JSON file listing the genes (as the order might differ). You can load the results with R and plot them:
@@ -102,7 +102,7 @@ Each script produces a JSON file with the predictions of the gene expression for
 ```r
 library(tidyverse)
 
-test_train <- rjson::fromJSON(file = "/tmp/working_dir/results/test_train_split") %>%
+test_train <- rjson::fromJSON(file = "/tmp/working_dir/results/seed_1_adamson_split") %>%
   enframe(name = "train", value = "perturbation") %>%
   unnest(perturbation)
 
