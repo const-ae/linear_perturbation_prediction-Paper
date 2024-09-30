@@ -41,8 +41,8 @@ First, we will will setup some folders:
 
 ```shell
 # This could be anywhere
-mkdir working_dir
-mkdir working_dir/results
+mkdir /tmp/working_dir
+mkdir /tmp/working_dir/results
 mkdir -p data/gears_pert_data
 ```
 
