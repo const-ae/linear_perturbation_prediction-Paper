@@ -6,6 +6,12 @@ The `submission` folder contains a file called `run_perturbation_benchmark.R` th
 
 The jobs are defined using my own workflow manager (creatively named [MyWorkflowManager](https://github.com/const-ae/MyWorkflowManager)). Each job is defined by the executed script and the command line arguments used to call it. In addition, each job is run in a separate environment with reproducible dependencies. 
 
+# Hardware
+
+- scFoundation [recommends](https://github.com/biomap-research/scFoundation/issues/47) to run the fine-tuning on an A100 GPU. We used an L40S.
+- scGPT needs a GPU for the fine-tuning.
+- GEARS can be run both on a regular CPU as well as a GPU.
+
 # Prepare environments
 
 The first time you run `R` (make sure to use version 4.4.1) in the `benchmark` folder, the `.Rprofile` file is loaded and calls `source("renv/activate.R")` which automatically prepares [`renv`](https://rstudio.github.io/renv/articles/renv.html). This process can take a few minutes. Then call 
@@ -72,7 +78,7 @@ Rscript --no-restore src/run_linear_pretrained_model.R \
     --result_id linear_results
 ```
 
-Similarly, we can now run scFoundation (`src/run_scfoundation.py`), GEARS (`src/run_gears.py`), or scGPT (`src/run_scgpt.py`). We can also calculate the ground truth by calling `src/ground_truth_combinatorial_prediction`. Just remember to load the right conda environment each time before executing the script.
+Similarly, we can now run scFoundation (`src/run_scfoundation.py`), GEARS (`src/run_gears.py`), or scGPT (`src/run_scgpt.py`). We can also calculate the ground truth by calling `src/ground_truth_combinatorial_prediction`. Remember to load the right conda environment each time before executing the script.
 
 ```shell
 conda activate gears_env2
