@@ -163,7 +163,9 @@ sc.pp.log1p(new_adata, layer='X_true')
 
 def mean_gene_expr_for_condition(condition):
     sub_data = new_adata[new_adata.obs['condition'] == condition,:]
-    return np.array(sub_data.layers['CPA_pred'].mean(axis=0)).flatten()
+    sub_data = sub_data.obsm['CPA_pred'].copy()
+    sub_data = np.log1p(sub_data)
+    return np.array(sub_data.mean(axis=0)).flatten()
 
 conds = new_adata.obs["condition"].cat.remove_unused_categories().cat.categories.tolist()
 all_pred_vals = {k: mean_gene_expr_for_condition(k).tolist() for k in conds}
